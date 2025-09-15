@@ -1,3 +1,5 @@
+--модель данных для БД, которая автоматически создается при первом старте сервиса
+
 create table users(
     id uuid primary key,
     username varchar(255) not null
