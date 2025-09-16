@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// креды, которые берутся из env
 type DBConfig struct {
 	DBHost            string
 	DBPort            string
@@ -22,6 +23,7 @@ type DBConfig struct {
 	DBMaxConnLifeTime int
 }
 
+// функция возвращает параметры для подключения к БД в коде
 func LoadDBConfig() (*DBConfig, error) {
 
 	if err := godotenv.Load(".env"); err != nil {
