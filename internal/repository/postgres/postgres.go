@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -29,11 +28,9 @@ func NewPostgresStorage(cfg *config.DBConfig) (*PostgresStorage, error) {
 	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
 	db.SetConnMaxLifetime(time.Duration(cfg.DBMaxConnLifeTime) * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.Ping(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("ошибка при проверке соединиения с БД: %v", err)
+		return nil, fmt.Errorf("ошибка при проверке соединения с БД: %v", err)
 	}
 
 	return &PostgresStorage{db: db}, nil
@@ -47,27 +44,160 @@ func (p *PostgresStorage) Close() error {
 }
 
 func (p *PostgresStorage) CreateUser(user *models.User) error {
-	ctx := context.Background()
-	query := `INSERT INTO users (id, username) VALUES ($1, $2)`
-	_, err := p.db.ExecContext(ctx, query, user.ID, user.Username)
+	query := `insert into users (id, username) values ($1, $2)`
+	_, err := p.db.Exec(query, user.ID, user.Username)
 	if err != nil {
-		return fmt.Errorf("create user: %v", err)
+		return fmt.Errorf("ошибка при создании пользователя с id %s: %w", user.ID, err)
 	}
 	return nil
 }
 
 func (p *PostgresStorage) GetUserByID(id string) (*models.User, error) {
-	query := `SELECT id, username FROM users WHERE id = $1`
+	query := `select id, username from users where id = $1`
 	row := p.db.QueryRow(query, id)
 
 	var user models.User
 	err := row.Scan(&user.ID, &user.Username)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("%w: user with id %s", customerrors.ErrNotFound, id)
+			return nil, fmt.Errorf("%w: пользователь с id %s", customerrors.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("%w: %v", customerrors.ErrDBQuery, err)
 	}
 
 	return &user, nil
+}
+
+func (p *PostgresStorage) CreatePost(post *models.Post) error {
+	if post.CreatedAt.IsZero() {
+		post.CreatedAt = time.Now()
+	}
+	query := `insert into posts (id, title, content, author_id, comments_enabled, created_at) values ($1,$2,$3,$4,$5,$6)`
+	_, err := p.db.Exec(query, post.ID, post.Title, post.Content, post.AuthorID, post.CommentsEnabled, post.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("ошибка при создании поста с id %s: %w", post.ID, err)
+	}
+	return nil
+}
+
+func (p *PostgresStorage) GetPostByID(id string) (*models.Post, error) {
+	query := `select id, title, content, author_id, comments_enabled, created_at from posts where id = $1`
+	row := p.db.QueryRow(query, id)
+
+	var post models.Post
+	err := row.Scan(&post.ID, &post.Title, &post.Content, &post.AuthorID, &post.CommentsEnabled, &post.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: пост с id %s", customerrors.ErrNotFound, id)
+		}
+		return nil, fmt.Errorf("%w: %v", customerrors.ErrDBQuery, err)
+	}
+	return &post, nil
+}
+
+func (p *PostgresStorage) ListPosts(offset, limit int) ([]*models.Post, error) {
+	if offset < 0 || limit <= 0 {
+		return nil, fmt.Errorf("%w: неправильные параметры пагинации", customerrors.ErrParamOutOfRange)
+	}
+
+	query := `select id, title, content, author_id, comments_enabled, created_at from posts order by created_at desc offset $1 limit $2`
+	rows, err := p.db.Query(query, offset, limit)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", customerrors.ErrDBQuery, err)
+	}
+	defer rows.Close()
+
+	var posts []*models.Post
+	for rows.Next() {
+		var post models.Post
+		if err := rows.Scan(&post.ID, &post.Title, &post.Content, &post.AuthorID, &post.CommentsEnabled, &post.CreatedAt); err != nil {
+			return nil, fmt.Errorf("%w: %v", customerrors.ErrDBScan, err)
+		}
+		posts = append(posts, &post)
+	}
+	return posts, nil
+}
+
+func (p *PostgresStorage) UpdatePost(post *models.Post) error {
+	query := `update posts set title=$1, content=$2, comments_enabled=$3 where id=$4`
+	res, err := p.db.Exec(query, post.Title, post.Content, post.CommentsEnabled, post.ID)
+	if err != nil {
+		return fmt.Errorf("ошибка при обновлении поста: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%w: %v", customerrors.ErrDBQuery, err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("%w: пост с id %s", customerrors.ErrNotFound, post.ID)
+	}
+	return nil
+}
+
+func (p *PostgresStorage) CreateComment(comment *models.Comment) error {
+	if comment.CreatedAt.IsZero() {
+		comment.CreatedAt = time.Now()
+	}
+	query := `insert into comments (id, post_id, parent_id, author_id, text, created_at) values ($1,$2,$3,$4,$5,$6)`
+	_, err := p.db.Exec(query, comment.ID, comment.PostID, comment.ParentID, comment.AuthorID, comment.Text, comment.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("ошибка при создании комментария с id %s : %w", comment.ID, err)
+	}
+	return nil
+}
+
+func (p *PostgresStorage) GetCommentByID(id string) (*models.Comment, error) {
+	query := `select id, post_id, parent_id, author_id, text, created_at from comments where id = $1`
+	row := p.db.QueryRow(query, id)
+
+	var comment models.Comment
+	err := row.Scan(&comment.ID, &comment.PostID, &comment.ParentID, &comment.AuthorID, &comment.Text, &comment.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: комментарий с id %s", customerrors.ErrNotFound, id)
+		}
+		return nil, fmt.Errorf("%w: %v", customerrors.ErrDBQuery, err)
+	}
+
+	return &comment, nil
+}
+
+func (p *PostgresStorage) ListCommentsByPost(postID string, parentID *string, offset, limit int) ([]*models.Comment, error) {
+	if offset < 0 || limit <= 0 {
+		return nil, fmt.Errorf("%w: неправильные параметры пагинации", customerrors.ErrParamOutOfRange)
+	}
+
+	var rows *sql.Rows
+	var err error
+
+	if parentID == nil {
+		query := `select id, post_id, parent_id, author_id, text, created_at
+				from comments
+				where post_id = $1 and parent_id is null
+				order by created_at asc
+				offset $2 limit $3`
+		rows, err = p.db.Query(query, postID, offset, limit)
+	} else {
+		query := `select id, post_id, parent_id, author_id, text, created_at
+				from comments
+				where post_id = $1 and parent_id = $2
+				order by created_at asc
+				offset $3 limit $4`
+		rows, err = p.db.Query(query, postID, *parentID, offset, limit)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", customerrors.ErrDBQuery, err)
+	}
+	defer rows.Close()
+
+	var comments []*models.Comment
+	for rows.Next() {
+		var comment models.Comment
+		if err := rows.Scan(&comment.ID, &comment.PostID, &comment.ParentID, &comment.AuthorID, &comment.Text, &comment.CreatedAt); err != nil {
+			return nil, fmt.Errorf("%w: %v", customerrors.ErrDBScan, err)
+		}
+		comments = append(comments, &comment)
+	}
+	return comments, nil
 }

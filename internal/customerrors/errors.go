@@ -10,8 +10,13 @@ var (
 	ErrInvalidEnvValue = errors.New("некорректное значение переменной окружения")
 	ErrDBCreation      = errors.New("ошибка при создании БД")
 	ErrDBQuery         = errors.New("ошибка во время исполнения sql запроса")
+	ErrDBScan          = errors.New("ошибка при чтении результата из БД")
 
 	ErrNotFound        = errors.New("объект не найден")
 	ErrAlreadyExists   = errors.New("объект уже существует")
 	ErrParamOutOfRange = errors.New("параметр выходит за допустимые пределы значения")
+
+	ErrValidation    = errors.New("ошибка валидации объекта")
+	ErrCommForbidden = errors.New("оставлять комментариев запрещено")
+	ErrForbidden     = errors.New("действие запрещено")
 )

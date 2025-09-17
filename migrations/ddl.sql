@@ -18,7 +18,7 @@ create table comments (
     post_id uuid not null references posts(id),
     parent_id uuid null references comments(id), --связь с родительским комментарием
     author_id uuid not null references users(id),
-    text text not null,
+    text varchar(2000) not null,
     created_at timestamp not null default now()
 );
 
