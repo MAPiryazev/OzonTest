@@ -7,8 +7,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
+
+	"github.com/MAPiryazev/OzonTest/graph"
 	"github.com/MAPiryazev/OzonTest/internal/config"
+	hndl "github.com/MAPiryazev/OzonTest/internal/handler"
 	"github.com/MAPiryazev/OzonTest/internal/repository"
 	"github.com/MAPiryazev/OzonTest/internal/repository/inmemory"
 	"github.com/MAPiryazev/OzonTest/internal/repository/postgres"
@@ -22,6 +28,7 @@ func main() {
 
 	var store repository.Storage
 
+	//определение флагов для распознавания режима работы хранилища
 	switch *mode {
 	case "memory":
 		store = inmemory.NewMemoryStorage()
@@ -41,7 +48,24 @@ func main() {
 		log.Fatalf("Неверный режим хранения: %s", *mode)
 	}
 
-	// дальше сюда можно интегрировать сервис слой и GraphQL сервер
+	//сервисный слой из internal
 	svc := service.NewService(store)
 
+	apiConfig, err := config.LoadAppConfig()
+	if err != nil {
+		log.Println("ошибка при загрузке конфига API, значения параметров могут быть выставлены по умолчанию")
+	}
+	//хендлер, написанный в internal
+	myHandler := hndl.NewHandler(svc, apiConfig)
+
+	//resolver graphql
+	resolver := &graph.Resolver{Handler: myHandler}
+	srv := handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
+
+	http.Handle("/query", srv)
+	http.Handle("/", playground.Handler("GraphQL Playground", "/query"))
+
+	port := apiConfig.AppPort
+	fmt.Printf("Запуск сервера на http://localhost:%s/ \n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
