@@ -18,16 +18,14 @@ create table comments (
     post_id uuid not null references posts(id),
     parent_id uuid null references comments(id), --связь с родительским комментарием
     author_id uuid not null references users(id),
-    text varchar(2000) not null,
+    text varchar(2000) not null, --2к символов ограничение
     created_at timestamp not null default now()
 );
 
 --индексы
 create unique index idx_users_username on users(username);
-
 create index idx_posts_author_id on posts(author_id);
 create index idx_posts_created_at on posts(created_at);
-
 create index idx_comments_post_id on comments(post_id);
 create index idx_comments_parent_id on comments(parent_id);
 create index idx_comments_author_id on comments(author_id);

@@ -1,6 +1,7 @@
 package inmemory
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/MAPiryazev/OzonTest/internal/models"
 )
 
+// реализация интерфейса storage как in-memory хранилище
 type MemoryStorage struct {
 	mu       sync.RWMutex
 	users    map[string]*models.User
@@ -24,19 +26,20 @@ func NewMemoryStorage() *MemoryStorage {
 	}
 }
 
-func (m *MemoryStorage) CreateUser(user *models.User) error {
+func (m *MemoryStorage) CreateUser(ctx context.Context, user *models.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.users[user.ID]
-	if exists {
-		return fmt.Errorf("%w: пользователь с id %s", customerrors.ErrAlreadyExists, user.ID)
+	_, ok := m.users[user.Username]
+	if ok {
+		return fmt.Errorf("%w: пользователь с именем %s", customerrors.ErrAlreadyExists, user.Username)
 	}
-	m.users[user.ID] = user
+
+	m.users[user.Username] = user
 	return nil
 }
 
-func (m *MemoryStorage) GetUserByID(id string) (*models.User, error) {
+func (m *MemoryStorage) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -47,7 +50,7 @@ func (m *MemoryStorage) GetUserByID(id string) (*models.User, error) {
 	return user, nil
 }
 
-func (m *MemoryStorage) GetPostByID(id string) (*models.Post, error) {
+func (m *MemoryStorage) GetPostByID(ctx context.Context, id string) (*models.Post, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -58,7 +61,7 @@ func (m *MemoryStorage) GetPostByID(id string) (*models.Post, error) {
 	return post, nil
 }
 
-func (m *MemoryStorage) ListPosts(offset, limit int) ([]*models.Post, error) {
+func (m *MemoryStorage) ListPosts(ctx context.Context, offset, limit int) ([]*models.Post, error) {
 	if offset < 0 || limit <= 0 {
 		return nil, fmt.Errorf("%w: неправильный параметр пагинации", customerrors.ErrParamOutOfRange)
 	}
@@ -82,12 +85,12 @@ func (m *MemoryStorage) ListPosts(offset, limit int) ([]*models.Post, error) {
 	return allPosts[offset:end], nil
 }
 
-func (m *MemoryStorage) CreatePost(post *models.Post) error {
+func (m *MemoryStorage) CreatePost(ctx context.Context, post *models.Post) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.posts[post.ID]
-	if exists {
+	_, ok := m.posts[post.ID]
+	if ok {
 		return fmt.Errorf("%w: пост с id %s", customerrors.ErrAlreadyExists, post.ID)
 	}
 
@@ -96,7 +99,7 @@ func (m *MemoryStorage) CreatePost(post *models.Post) error {
 	return nil
 }
 
-func (m *MemoryStorage) UpdatePost(post *models.Post) error {
+func (m *MemoryStorage) UpdatePost(ctx context.Context, post *models.Post) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -108,13 +111,13 @@ func (m *MemoryStorage) UpdatePost(post *models.Post) error {
 	return nil
 }
 
-func (m *MemoryStorage) CreateComment(comment *models.Comment) error {
+func (m *MemoryStorage) CreateComment(ctx context.Context, comment *models.Comment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	_, ok := m.comments[comment.ID]
 	if ok {
-		return fmt.Errorf("%w: comment with id %s", customerrors.ErrAlreadyExists, comment.ID)
+		return fmt.Errorf("%w: комментарий с  id %s", customerrors.ErrAlreadyExists, comment.ID)
 
 	}
 	comment.CreatedAt = time.Now()
@@ -122,18 +125,18 @@ func (m *MemoryStorage) CreateComment(comment *models.Comment) error {
 	return nil
 }
 
-func (m *MemoryStorage) GetCommentByID(id string) (*models.Comment, error) {
+func (m *MemoryStorage) GetCommentByID(ctx context.Context, id string) (*models.Comment, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	comment, ok := m.comments[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: comment with id %s", customerrors.ErrNotFound, id)
+		return nil, fmt.Errorf("%w: комментарий с id %s", customerrors.ErrNotFound, id)
 	}
 	return comment, nil
 }
 
-func (m *MemoryStorage) ListCommentsByPost(postID string, parentID *string, offset, limit int) ([]*models.Comment, error) {
+func (m *MemoryStorage) ListCommentsByPost(ctx context.Context, postID string, parentID *string, offset, limit int) ([]*models.Comment, error) {
 	if offset < 0 || limit <= 0 {
 		return nil, fmt.Errorf("%w: неправильный параметр пагинации", customerrors.ErrParamOutOfRange)
 	}
@@ -141,24 +144,28 @@ func (m *MemoryStorage) ListCommentsByPost(postID string, parentID *string, offs
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	res := []*models.Comment{}
+	result := []*models.Comment{}
+
 	for _, val := range m.comments {
+		// фильтруем по ID поста
 		if val.PostID == postID {
+			// если parentID не указан — берем только корневые комментарии
 			if parentID == nil && val.ParentID == nil {
-				res = append(res, val)
+				result = append(result, val)
+				// если parentID указан — берем только комментарии с этим parentID
 			} else if parentID != nil && val.ParentID != nil && *parentID == *val.ParentID {
-				res = append(res, val)
+				result = append(result, val)
 			}
 		}
 	}
 
-	if offset > len(res) {
+	if offset > len(result) {
 		return []*models.Comment{}, nil
 	}
 
-	end := offset + limit
-	if end > len(res) {
-		end = len(res)
+	stop := offset + limit
+	if stop > len(result) {
+		stop = len(result)
 	}
-	return res[offset:end], nil
+	return result[offset:stop], nil
 }

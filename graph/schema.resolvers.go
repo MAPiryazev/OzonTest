@@ -8,115 +8,116 @@ import (
 	internal "github.com/MAPiryazev/OzonTest/internal/models"
 )
 
-// Преобразование internal моделей в graphql модели
-func toGraphQLUser(u *internal.User) *model.User {
-	if u == nil {
+// Следующие несколько функций - слой преобразования internal моделей в graphql модели
+func convertUser(user *internal.User) *model.User {
+	if user == nil {
 		return nil
 	}
-	return &model.User{ID: u.ID, Username: u.Username}
+	return &model.User{ID: user.ID, Username: user.Username}
 }
 
-func toGraphQLPost(p *internal.Post) *model.Post {
-	if p == nil {
+func convertPost(post *internal.Post) *model.Post {
+	if post == nil {
 		return nil
 	}
 	return &model.Post{
-		ID:              p.ID,
-		Title:           p.Title,
-		Content:         p.Content,
-		AuthorID:        p.AuthorID,
-		CommentsEnabled: p.CommentsEnabled,
-		CreatedAt:       p.CreatedAt.Format(time.RFC3339),
+		ID:              post.ID,
+		Title:           post.Title,
+		Content:         post.Content,
+		AuthorID:        post.AuthorID,
+		CommentsEnabled: post.CommentsEnabled,
+		CreatedAt:       post.CreatedAt.Format(time.RFC3339),
 	}
 }
 
-func toGraphQLComment(c *internal.Comment) *model.Comment {
-	if c == nil {
+func convertComment(comment *internal.Comment) *model.Comment {
+	if comment == nil {
 		return nil
 	}
 	return &model.Comment{
-		ID:        c.ID,
-		PostID:    c.PostID,
-		ParentID:  c.ParentID,
-		AuthorID:  c.AuthorID,
-		Text:      c.Text,
-		CreatedAt: c.CreatedAt.Format(time.RFC3339),
-	}
+		ID:        comment.ID,
+		PostID:    comment.PostID,
+		ParentID:  comment.ParentID,
+		AuthorID:  comment.AuthorID,
+		Text:      comment.Text,
+		CreatedAt: comment.CreatedAt.Format(time.RFC3339)}
 }
 
-func toGraphQLPosts(posts []*internal.Post) []*model.Post {
+func convertMultPosts(posts []*internal.Post) []*model.Post {
 	res := make([]*model.Post, len(posts))
-	for i, p := range posts {
-		res[i] = toGraphQLPost(p)
+	for i, val := range posts {
+		res[i] = convertPost(val)
 	}
 	return res
 }
 
-func toGraphQLComments(comments []*internal.Comment) []*model.Comment {
-	res := make([]*model.Comment, len(comments))
-	for i, c := range comments {
-		res[i] = toGraphQLComment(c)
+func convertMultComments(commentArr []*internal.Comment) []*model.Comment {
+	res := make([]*model.Comment, len(commentArr))
+	for i, val := range commentArr {
+		res[i] = convertComment(val)
 	}
 	return res
 }
 
 // дальше идут резолверы (в данном случае обертки над хендлерами)
 func (r *mutationResolver) CreateUser(ctx context.Context, username string) (*model.User, error) {
-	u, err := r.Handler.CreateUser(username)
+	user, err := r.Handler.CreateUser(ctx, username)
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLUser(u), nil
+
+	return convertUser(user), nil
 }
 
 func (r *mutationResolver) CreatePost(ctx context.Context, title, content, authorID string, commentsEnabled bool) (*model.Post, error) {
-	p, err := r.Handler.CreatePost(title, content, authorID, commentsEnabled)
+	post, err := r.Handler.CreatePost(ctx, title, content, authorID, commentsEnabled)
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLPost(p), nil
+	return convertPost(post), nil
 }
 
 func (r *mutationResolver) UpdatePost(ctx context.Context, id, title, content, userID string) (*model.Post, error) {
-	p, err := r.Handler.UpdatePost(id, title, content, userID)
+	post, err := r.Handler.UpdatePost(ctx, id, title, content, userID)
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLPost(p), nil
+	return convertPost(post), nil
 }
 
 func (r *mutationResolver) CreateComment(ctx context.Context, postID, text, authorID string, parentID *string) (*model.Comment, error) {
-	c, err := r.Handler.CreateComment(postID, text, authorID, parentID)
+	comment, err := r.Handler.CreateComment(ctx, postID, text, authorID, parentID)
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLComment(c), nil
+	return convertComment(comment), nil
 }
 
 func (r *queryResolver) ListPosts(ctx context.Context, offset, limit int32) ([]*model.Post, error) {
-	posts, err := r.Handler.ListPosts(int(offset), int(limit))
+	posts, err := r.Handler.ListPosts(ctx, int(offset), int(limit))
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLPosts(posts), nil
+	return convertMultPosts(posts), nil
 }
 
 func (r *queryResolver) GetPost(ctx context.Context, id string) (*model.Post, error) {
-	p, err := r.Handler.GetPost(id)
+	post, err := r.Handler.GetPost(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLPost(p), nil
+	return convertPost(post), nil
 }
 
 func (r *queryResolver) ListComments(ctx context.Context, postID string, parentID *string, offset, limit int32) ([]*model.Comment, error) {
-	comments, err := r.Handler.ListComments(postID, parentID, int(offset), int(limit))
+	comments, err := r.Handler.ListComments(ctx, postID, parentID, int(offset), int(limit))
 	if err != nil {
 		return nil, err
 	}
-	return toGraphQLComments(comments), nil
+	return convertMultComments(comments), nil
 }
 
+// служебные, сгенерированные gqlgen
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 func (r *Resolver) Query() QueryResolver       { return &queryResolver{r} }
 

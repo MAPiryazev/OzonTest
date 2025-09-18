@@ -3,6 +3,16 @@ package main
 //go run main.go --mode=memory
 //go run main.go --mode=postgres
 
+//TODO
+// прокинуть контексты                                                                          DONE
+// перенести логику валидации из хендлера в service слой                                        DONE
+// пофиксить ошибку того что не отлавливается ошибка при добавлении того же самого пользователя DONE
+//тесты написать
+//упак в docker
+//возможно graceful shotdown
+//МБ LRU кеш прикрутить но уже как карта ляжет
+//написать побольше коммов и ридми
+
 import (
 	"flag"
 	"fmt"
@@ -23,7 +33,7 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	mode := flag.String("mode", "memory", "storage mode: memory or postgres")
+	mode := flag.String("mode", "memory", "режим работы: memory or postgres")
 	flag.Parse()
 
 	var store repository.Storage
@@ -32,7 +42,7 @@ func main() {
 	switch *mode {
 	case "memory":
 		store = inmemory.NewMemoryStorage()
-		fmt.Println("Используется in-memory хранилище")
+		log.Println("Используется in-memory хранилище")
 	case "postgres":
 		cfg, err := config.LoadDBConfig()
 		if err != nil {
@@ -43,20 +53,21 @@ func main() {
 			log.Fatalf("Ошибка при подключении к Postgres: %v", err)
 		}
 		defer store.(*postgres.PostgresStorage).Close()
-		fmt.Println("Используется Postgres хранилище")
+		log.Println("Используется Postgres хранилище")
 	default:
 		log.Fatalf("Неверный режим хранения: %s", *mode)
 	}
-
-	//сервисный слой из internal
-	svc := service.NewService(store)
 
 	apiConfig, err := config.LoadAppConfig()
 	if err != nil {
 		log.Println("ошибка при загрузке конфига API, значения параметров могут быть выставлены по умолчанию")
 	}
+
+	//сервисный слой из internal
+	svc := service.NewService(store, apiConfig)
+
 	//хендлер, написанный в internal
-	myHandler := hndl.NewHandler(svc, apiConfig)
+	myHandler := hndl.NewHandler(svc)
 
 	//resolver graphql
 	resolver := &graph.Resolver{Handler: myHandler}
@@ -66,6 +77,7 @@ func main() {
 	http.Handle("/", playground.Handler("GraphQL Playground", "/query"))
 
 	port := apiConfig.AppPort
-	fmt.Printf("Запуск сервера на http://localhost:%s/ \n", port)
+	fmt.Printf("http://localhost:%s/ \n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
+
 }
