@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,11 +25,14 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	mode := flag.String("mode", "memory", "режим работы: memory or postgres")
-	flag.Parse()
 
-	//инициализация хранилища
-	strg, err := db.InitStorage(*mode)
+	mode, err := config.LoadLaunchMode()
+	if err != nil {
+		log.Fatalf("Ошибка при получении режима запуска: %v", err)
+	}
+
+	// инициализация хранилища
+	strg, err := db.InitStorage(mode)
 	if err != nil {
 		log.Fatalf("Ошибка при инициализации хранилища: %v", err)
 	}

@@ -1,0 +1,8 @@
+# тесты и моки
+internal/test/
+internal/service/mocks/
+internal/repository/mocks/
+
+# Инструменты и генераторы
+tools.go
+gqlgen.yml
