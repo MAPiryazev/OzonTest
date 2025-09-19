@@ -19,4 +19,6 @@ type Storage interface {
 
 	CreateUser(ctx context.Context, user *models.User) error
 	GetUserByID(ctx context.Context, id string) (*models.User, error)
+
+	Close() error
 }

@@ -3,32 +3,25 @@ package main
 //go run main.go --mode=memory
 //go run main.go --mode=postgres
 
-//TODO
-// прокинуть контексты                                                                          DONE
-// перенести логику валидации из хендлера в service слой                                        DONE
-// пофиксить ошибку того что не отлавливается ошибка при добавлении того же самого пользователя DONE
-//тесты написать
-//упак в docker
-//возможно graceful shotdown
-//МБ LRU кеш прикрутить но уже как карта ляжет
-//написать побольше коммов и ридми
-
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/MAPiryazev/OzonTest/graph"
 	"github.com/MAPiryazev/OzonTest/internal/config"
 	hndl "github.com/MAPiryazev/OzonTest/internal/handler"
-	"github.com/MAPiryazev/OzonTest/internal/repository"
-	"github.com/MAPiryazev/OzonTest/internal/repository/inmemory"
-	"github.com/MAPiryazev/OzonTest/internal/repository/postgres"
+	"github.com/MAPiryazev/OzonTest/internal/infra/db"
 	"github.com/MAPiryazev/OzonTest/internal/service"
+	"github.com/MAPiryazev/OzonTest/internal/shutdown"
 )
 
 func main() {
@@ -36,26 +29,10 @@ func main() {
 	mode := flag.String("mode", "memory", "режим работы: memory or postgres")
 	flag.Parse()
 
-	var store repository.Storage
-
-	//определение флагов для распознавания режима работы хранилища
-	switch *mode {
-	case "memory":
-		store = inmemory.NewMemoryStorage()
-		log.Println("Используется in-memory хранилище")
-	case "postgres":
-		cfg, err := config.LoadDBConfig()
-		if err != nil {
-			log.Fatalf("Ошибка при загрузке конфигурации БД: %v", err)
-		}
-		store, err = postgres.NewPostgresStorage(cfg)
-		if err != nil {
-			log.Fatalf("Ошибка при подключении к Postgres: %v", err)
-		}
-		defer store.(*postgres.PostgresStorage).Close()
-		log.Println("Используется Postgres хранилище")
-	default:
-		log.Fatalf("Неверный режим хранения: %s", *mode)
+	//инициализация хранилища
+	strg, err := db.InitStorage(*mode)
+	if err != nil {
+		log.Fatalf("Ошибка при инициализации хранилища: %v", err)
 	}
 
 	apiConfig, err := config.LoadAppConfig()
@@ -63,21 +40,38 @@ func main() {
 		log.Println("ошибка при загрузке конфига API, значения параметров могут быть выставлены по умолчанию")
 	}
 
-	//сервисный слой из internal
-	svc := service.NewService(store, apiConfig)
+	// сервисный слой
+	svc := service.NewService(strg, apiConfig)
 
-	//хендлер, написанный в internal
+	// хендлер
 	myHandler := hndl.NewHandler(svc)
 
-	//resolver graphql
+	// graphql resolver
 	resolver := &graph.Resolver{Handler: myHandler}
 	srv := handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
 
-	http.Handle("/query", srv)
-	http.Handle("/", playground.Handler("GraphQL Playground", "/query"))
+	r := chi.NewRouter()
+	r.Handle("/query", srv)
+	r.Handle("/", playground.Handler("GraphQL Playground", "/query"))
 
-	port := apiConfig.AppPort
-	fmt.Printf("http://localhost:%s/ \n", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	httpServer := &http.Server{
+		Addr:    ":" + apiConfig.AppPort,
+		Handler: r,
+	}
+
+	// контекст, который отменяется по сигналу ОС
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		fmt.Printf("http://localhost:%s/ \n", apiConfig.AppPort)
+		err := httpServer.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Ошибка запуска сервера: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	shutdown.Shutdown(httpServer, strg)
 
 }
